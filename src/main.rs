@@ -1,3 +1,5 @@
+mod interpreter;
 fn main() {
-    println!("Hello, world!");
+    let hello = interpreter::ChipEight::new(700);
+    chip8_base::run(hello);
 }
