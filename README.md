@@ -1,2 +1,2 @@
-# chip8-interpreter
-Chip-8 Interpreter written in Rust
+# Chip-8 Interpreter
+Written this on my journey to becoming an ever aspiring Rustacean!
