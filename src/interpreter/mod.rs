@@ -26,6 +26,16 @@ impl ChipEight {
         
     }
 
+
+    fn fetch(&mut self) -> u16 {
+        let ins = u16::from_be_bytes([
+            self.memory[self.program_counter as usize],
+            self.memory[(self.program_counter + 1) as usize]
+        ]);
+        self.program_counter += 2;
+        ins
+    }
+
 } 
 
 impl Interpreter for ChipEight {
