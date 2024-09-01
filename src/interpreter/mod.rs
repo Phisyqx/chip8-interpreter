@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::{iter::TakeWhile, str::FromStr, time::Duration};
 
 use chip8_base::Interpreter;
 
@@ -33,7 +33,6 @@ impl ChipEight {
             self.memory[self.program_counter as usize],
             self.memory[(self.program_counter + 1) as usize]
         ]);
-        dbg!(&ins, &self.program_counter);
         self.program_counter += 2;
         self.program_counter &= 0x0FFF;
         
@@ -47,10 +46,12 @@ impl ChipEight {
         let n0 = ( ins       & 0b1111) as u8;
         (n3, n2, n1, n0)
     }
-
+    fn twelvebits (a: u8, b: u8, c: u8) -> u16 {
+        ((a as u16) << 8 + (b as u16) << 4 + c) & 0xFFF
+    }
     fn execute(&mut self, ins: u16) {
         match Self::get_nibbles(ins) {
-            (0x0, 0x0, 0x0, 0x0) => (), // NOP
+            (0x0, 0x0, 0x0, 0x0) => println!("Nothing"), // NOP
             // 00EE return from subroutine
             (0x0, 0x0, 0xE, 0xE) => {
                 self.program_counter = self.stack[self.stack_pointer as usize];
@@ -58,6 +59,11 @@ impl ChipEight {
             },
             // 8xy2 AND Vx, Vy, set Vx = Vx AND Vy
             (8, x, y, 2) => self.registers[x as usize] &= self.registers[y as usize],
+            (0, 0, 0xE, 0) => self.display = [[chip8_base::Pixel::Black; 64]; 32],
+            (6, x, k, n) => self.registers[x as usize] = (k << 4) + n,
+            (7, x, k, n) => self.registers[x as usize] = (self.registers[x as usize] + (k << 4) + n) & 0xFF,
+            (1, k, n, m) => self.program_counter = (self.registers[0] as u16 + ChipEight::twelvebits(k, n, m)) & 0xFFF,
+            (0xA, k, n, m) => self.program_counter = ChipEight::twelvebits(k, n, m),
             _ => panic!("Not implemented")
         }
     }
