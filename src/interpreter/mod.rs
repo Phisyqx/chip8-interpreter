@@ -1,6 +1,7 @@
 use std::time::Duration;
-
+mod instructions;
 use chip8_base::{Display, Interpreter, Pixel};
+use instructions::{decode, Instruction};
 #[derive(Debug)]
 pub struct ChipEight {
       memory         : [ u8; 4096 ]
@@ -44,56 +45,53 @@ impl ChipEight {
     //     update
     // }
 
-    fn execute(&mut self, ins: u16) -> Option<Display> { 
+    fn execute(&mut self, ins: Instruction) -> Option<Display> { 
         log::debug!("Executing instruction {ins:X?}");
-        match get_nibbles(ins) {
-            
-            (0x0, 0x0, 0xE, 0xE) => {
-                self.program_counter = self.stack[self.stack_pointer as usize];
-                self.program_counter -= 1
+        match ins {
+            Instruction::Cls => {
+                self.display = [[Pixel::Black; 64]; 32];
+                return Some(self.display);
             },
-            // 8xy2 AND Vx, Vy, set Vx = Vx AND Vy
-            (8, x, y, 2) => self.registers[x as usize] &= self.registers[y as usize],
-
-            (0, 0, 0xE, 0) => self.display = [[chip8_base::Pixel::Black; 64]; 32],
-            (0x0, _, _, _) => (), // NOP
-            (6, x, k, n) => {self.registers[x as usize] = (k << 4) | n;
-            log::debug!("Added {} to {x}", ((k << 4) | n).to_string())},
-            (7, x, k, n) => self.registers[x as usize] = self.registers[x as usize].wrapping_add(self.registers[x as usize] + (k << 4) + n),
-            (1, k, n, m) => self.program_counter = twelvebits(k, n, m),
-            (0xA, k, n, m) => self.stack_pointer = twelvebits(k, n, m),
-            (0xD, x, y, n) => {
-                        self.registers[0xF] = 0;
-                        for byte in 0..n {
-                            let y = (self.registers[y as usize] as usize + byte as usize) % 32;
-                            let sprite_byte = self.memory[self.stack_pointer as usize + byte as usize];
-
-                            for bit in 0..8 {
-                                let x = (self.registers[x as usize] as usize + bit) % 64;
-                                let sprite_px = (sprite_byte >> (7-bit)) & 1;
-
-                                if self.display[y][x] == Pixel::White && sprite_px == 1 {
-                                    self.registers[0xF] = 1;
-                                }
-                                let display_px = &mut self.display[y as usize + byte as usize][x as usize + bit];
-                                let conv_px = match Pixel::try_from(sprite_px) {
-                                    Ok(px) => px,
-                                    Err(_) => panic!("Tried to convert not a 0 or 1 into a pixel"),
-                                };
-                                *display_px ^= conv_px;
-                            }
-                        }
-                        
-                        
-                        return Some(self.display)
-
+            Instruction::Nop => (),
+            Instruction::Jmp(addr) => {
+                self.program_counter = addr;
+            },
+            Instruction::Setr(r, byte) => {
+                self.registers[r as usize] = byte;
+            },
+            Instruction::Addr(r, byte) => {
+                self.registers[r as usize] = self.registers[r as usize].wrapping_add(byte)
+            },
+            Instruction::Seti(nnn) => {
+                self.stack_pointer = nnn;
+            },
+            Instruction::Draw(rx, ry, n) => {
+                let range = (self.stack_pointer as usize)..((self.stack_pointer + n as u16) as usize);
+                let sprite = &self.memory[range];
+                let x = self.registers[rx as usize] % 64;
+                let y = self.registers[ry as usize] % 32;
+                self.registers[0xF] = 0;
+                for (i, row) in sprite.iter().enumerate() {
+                    if y + i as u8 > 31 {
+                        break
                     }
-                    _ => panic!("Not implemented")
-
-                };
-                None
+                    for (j, sprite_px) in (0..8).zip(PixIterator::new(row)) {
+                        if x + j as u8 > 63 {
+                            break;
+                        }
+                        let display_px = &mut self.display[y as usize + i][x as usize + j];
+                        if (*display_px & sprite_px).into() {
+                            self.registers[0xF] = 1;
+                        }
+                        *display_px ^= sprite_px;
+                    }
+                }
+                return Some(self.display);
+            },
+        };
+        None
                 
-            }
+    }
             
             
             //TODO: Refactor instructions into their own enum
@@ -121,22 +119,15 @@ impl ChipEight {
 //         n & 1,
 //     ]
 // }
-fn get_nibbles(ins: u16) -> (u8, u8, u8, u8) {
-    let n3 = ( ins >> 12) as u8;
-    let n2 = ((ins >> 8) & 0b1111) as u8;
-    let n1 = ((ins >> 4) & 0b1111) as u8;
-    let n0 = ( ins       & 0b1111) as u8;
-    (n3, n2, n1, n0)
-}
-fn twelvebits (a: u8, b: u8, c: u8) -> u16 {
-    (a as u16) << 8 | (b as u16) << 4 | (c as u16)
-}
+
 impl Interpreter for ChipEight {
     fn step(&mut self, keys: &chip8_base::Keys) -> Option<chip8_base::Display> {
-        let ins = self.fetch();
-        self.execute(ins);
-        None
+        let opcode = self.fetch();
+        let ins = decode(opcode);
+        let update = self.execute(ins);
+        update
     }
+    
 
     fn speed(&self) -> std::time::Duration {
         self.speed
@@ -144,5 +135,33 @@ impl Interpreter for ChipEight {
 
     fn buzzer_active(&self) -> bool {
         false
+    }
+}
+struct PixIterator {
+    byte: u8,
+    idx: u8,
+}
+
+impl PixIterator {
+    pub fn new(byte: &u8) -> Self {
+        Self {
+            byte: *byte,
+            idx: 0,
+        }
+    }
+}
+
+impl Iterator for PixIterator {
+    type Item = Pixel;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx < 8 {
+            let bit = self.byte >> (7 - self.idx) & 1;
+            self.idx += 1;
+            assert!(bit == 1 || bit == 0);
+            Some(bit.try_into().unwrap()) //safe to unwrap because we assert
+        } else {
+            None
+        }
     }
 }
