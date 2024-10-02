@@ -1,4 +1,4 @@
-mod tools;
+pub mod tools;
 use tools::*;
 
 type Reg = u8;

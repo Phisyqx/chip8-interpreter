@@ -6,7 +6,7 @@ fn main() {
     let args = Args::parse();
 
     let filename: &str = &args.rom;
-    let cpu = interpreter::ChipEight::new(700)
+    let cpu = interpreter::ChipEight::new(5)
         .load(filename)
         .unwrap_or_else(|_| panic!("Could not load ROM: {}", filename));
     

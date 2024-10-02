@@ -2,13 +2,14 @@ use std::time::Duration;
 mod instructions;
 use chip8_base::{Display, Interpreter, Pixel};
 use instructions::{decode, Instruction};
+use crate::interpreter::instructions::tools::byte_to_pixels;
 #[derive(Debug)]
 pub struct ChipEight {
       memory         : [ u8; 4096 ]
     , registers      : [ u8; 16 ]
     , display        : chip8_base::Display
     , program_counter: u16
-    , stack_pointer  : u16
+    , index  : u16
     , stack          : [ u16; 16 ]
     , speed          : Duration
 }
@@ -20,7 +21,7 @@ impl ChipEight {
             , registers      : [0; 16]
             , program_counter: 0x200
             , display        : [[chip8_base::Pixel::default(); 64]; 32]
-            , stack_pointer  : 0
+            , index          : 0
             , stack          : [0; 16]
             , speed          : Duration::from_secs_f64(1_f64 / freq as f64)
         }        
@@ -46,7 +47,7 @@ impl ChipEight {
     // }
 
     fn execute(&mut self, ins: Instruction) -> Option<Display> { 
-        log::debug!("Executing instruction {ins:X?}");
+        log::info!("Executing instruction {ins:X?}");
         match ins {
             Instruction::Cls => {
                 self.display = [[Pixel::Black; 64]; 32];
@@ -63,10 +64,10 @@ impl ChipEight {
                 self.registers[r as usize] = self.registers[r as usize].wrapping_add(byte)
             },
             Instruction::Seti(nnn) => {
-                self.stack_pointer = nnn;
+                self.index = nnn;
             },
             Instruction::Draw(rx, ry, n) => {
-                let range = (self.stack_pointer as usize)..((self.stack_pointer + n as u16) as usize);
+                let range = (self.index as usize)..((self.index + n as u16) as usize);
                 let sprite = &self.memory[range];
                 let x = self.registers[rx as usize] % 64;
                 let y = self.registers[ry as usize] % 32;
@@ -75,7 +76,7 @@ impl ChipEight {
                     if y + i as u8 > 31 {
                         break
                     }
-                    for (j, sprite_px) in (0..8).zip(PixIterator::new(row)) {
+                    for (j, sprite_px) in (0..8).zip(byte_to_pixels(*row)) {
                         if x + j as u8 > 63 {
                             break;
                         }
@@ -92,14 +93,11 @@ impl ChipEight {
         None
                 
     }
-            
-            
-            //TODO: Refactor instructions into their own enum
-            //TODO: currently broken cus program counter is increasing incorrectly but it does fetch decode and execute proopperly!!!!
 
     
     pub fn load(mut self, filename: &str) -> std::io::Result<Self> {
         let program = std::fs::read(filename)?;
+        log::info!("Loaded into memery");
         self.memory[0x200..(0x200 + program.len())].copy_from_slice(&program);
         self.program_counter = 0x200;
         Ok(self)
@@ -107,18 +105,6 @@ impl ChipEight {
 
 }
 
-// fn bits_to_array(n: &u8) -> [u8 ; 8] {
-//     [
-//         (n >> 7) & 1,
-//         (n >> 6) & 1,
-//         (n >> 5) & 1,
-//         (n >> 4) & 1,
-//         (n >> 3) & 1,
-//         (n >> 2) & 1,
-//         (n >> 1) & 1,
-//         n & 1,
-//     ]
-// }
 
 impl Interpreter for ChipEight {
     fn step(&mut self, keys: &chip8_base::Keys) -> Option<chip8_base::Display> {
@@ -137,31 +123,31 @@ impl Interpreter for ChipEight {
         false
     }
 }
-struct PixIterator {
-    byte: u8,
-    idx: u8,
-}
+// struct PixIterator {
+//     byte: u8,
+//     idx: u8,
+// }
 
-impl PixIterator {
-    pub fn new(byte: &u8) -> Self {
-        Self {
-            byte: *byte,
-            idx: 0,
-        }
-    }
-}
+// impl PixIterator {
+//     pub fn new(byte: &u8) -> Self {
+//         Self {
+//             byte: *byte,
+//             idx: 0,
+//         }
+//     }
+// }
 
-impl Iterator for PixIterator {
-    type Item = Pixel;
+// impl Iterator for PixIterator {
+//     type Item = Pixel;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx < 8 {
-            let bit = self.byte >> (7 - self.idx) & 1;
-            self.idx += 1;
-            assert!(bit == 1 || bit == 0);
-            Some(bit.try_into().unwrap()) //safe to unwrap because we assert
-        } else {
-            None
-        }
-    }
-}
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.idx < 8 {
+//             let bit = self.byte >> (7 - self.idx) & 1;
+//             self.idx += 1;
+//             assert!(bit == 1 || bit == 0);
+//             Some(bit.try_into().unwrap()) //safe to unwrap because we assert
+//         } else {
+//             None
+//         }
+//     }
+// }
